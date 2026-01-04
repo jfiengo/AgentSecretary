@@ -232,6 +232,39 @@ async def disconnect_google(
     }
 
 
+@router.post("/google/sync/{business_id}")
+async def sync_to_google_calendar(
+    business_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Manually sync all pending appointments to Google Calendar.
+    
+    This pushes any appointments with sync_status='pending' to Google Calendar.
+    """
+    from app.services.google_calendar import GoogleCalendarService
+    
+    # Check connection exists
+    result = await db.execute(
+        select(CalendarConnection).where(
+            CalendarConnection.business_id == business_id,
+            CalendarConnection.provider == "google",
+        )
+    )
+    connection = result.scalar_one_or_none()
+    
+    if not connection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No Google Calendar connection found for business {business_id}",
+        )
+    
+    service = GoogleCalendarService(db)
+    result = await service.sync_pending_appointments(business_id)
+    
+    return result
+
+
 async def get_google_credentials(
     business_id: int,
     db: AsyncSession,
@@ -256,13 +289,18 @@ async def get_google_credentials(
     access_token = decrypt_token(connection.access_token)
     refresh_token = decrypt_token(connection.refresh_token) if connection.refresh_token else None
     
+    # Ensure expiry is timezone-naive (Google's library expects naive UTC)
+    token_expiry = connection.token_expires_at
+    if token_expiry and token_expiry.tzinfo is not None:
+        token_expiry = token_expiry.replace(tzinfo=None)
+    
     credentials = Credentials(
         token=access_token,
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret,
-        expiry=connection.token_expires_at,
+        expiry=token_expiry,
     )
     
     # Refresh if expired

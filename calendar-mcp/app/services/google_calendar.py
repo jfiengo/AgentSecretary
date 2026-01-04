@@ -7,9 +7,10 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.routes.oauth import get_google_credentials
-from app.models import Appointment, AppointmentStatus, BlockedTime, Business, CalendarConnection, SyncStatus
+from app.models import Appointment, AppointmentStatus, BlockedTime, Business, CalendarConnection, Customer, SyncStatus
 
 
 class GoogleCalendarService:
@@ -293,7 +294,9 @@ class GoogleCalendarService:
     async def sync_pending_appointments(self, business_id: int) -> dict:
         """Sync all pending appointments for a business to Google Calendar."""
         result = await self.db.execute(
-            select(Appointment).where(
+            select(Appointment)
+            .options(selectinload(Appointment.customer))  # Eagerly load customer
+            .where(
                 and_(
                     Appointment.business_id == business_id,
                     Appointment.sync_status == SyncStatus.PENDING,
