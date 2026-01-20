@@ -28,6 +28,7 @@ from app.models import (
     AvailabilityRule,
     BlockedTime,
     Business,
+    CalendarConnection,
     Customer,
     SyncStatus,
 )
@@ -320,4 +321,59 @@ def get_next_weekday(weekday: int) -> date:
     if days_ahead <= 0:
         days_ahead += 7
     return today + timedelta(days=days_ahead)
+
+
+@pytest_asyncio.fixture
+async def sample_calendar_connection(
+    test_db: AsyncSession,
+    sample_business: Business,
+) -> CalendarConnection:
+    """
+    Create a sample Google Calendar connection for testing.
+    
+    Returns a CalendarConnection with:
+    - Provider: google
+    - Encrypted access and refresh tokens
+    - Token expiry in the future
+    """
+    from app.utils.encryption import encrypt_token
+    
+    connection = CalendarConnection(
+        business_id=sample_business.id,
+        provider="google",
+        access_token=encrypt_token("test-access-token"),
+        refresh_token=encrypt_token("test-refresh-token"),
+        token_expires_at=datetime.utcnow() + timedelta(hours=1),
+        calendar_id="primary",
+    )
+    test_db.add(connection)
+    await test_db.flush()
+    await test_db.refresh(connection)
+    return connection
+
+
+@pytest_asyncio.fixture
+async def expired_calendar_connection(
+    test_db: AsyncSession,
+    sample_business: Business,
+) -> CalendarConnection:
+    """
+    Create an expired Google Calendar connection for testing.
+    
+    Returns a CalendarConnection with token_expires_at in the past.
+    """
+    from app.utils.encryption import encrypt_token
+    
+    connection = CalendarConnection(
+        business_id=sample_business.id,
+        provider="google",
+        access_token=encrypt_token("expired-access-token"),
+        refresh_token=encrypt_token("expired-refresh-token"),
+        token_expires_at=datetime.utcnow() - timedelta(hours=1),
+        calendar_id="primary",
+    )
+    test_db.add(connection)
+    await test_db.flush()
+    await test_db.refresh(connection)
+    return connection
 

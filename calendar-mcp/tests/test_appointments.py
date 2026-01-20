@@ -592,3 +592,145 @@ class TestRescheduleAppointment:
         
         assert new_duration == original_duration
 
+    def test_reschedule_invalid_datetime_format_returns_400(
+        self, client: TestClient, sample_appointment
+    ):
+        """
+        Verify that invalid datetime format returns 400 Bad Request.
+        
+        Expected behavior:
+        - Returns 400 Bad Request status
+        - Error message indicates invalid format
+        """
+        response = client.post(
+            f"/appointments/{sample_appointment.id}/reschedule",
+            params={"new_start_time": "not-a-valid-datetime"},
+        )
+        
+        assert response.status_code == 400
+        assert "Invalid" in response.json()["detail"]
+
+
+class TestListAppointmentsEdgeCases:
+    """Additional tests for list_appointments edge cases."""
+
+    def test_list_appointments_nonexistent_business_returns_404(
+        self, client: TestClient
+    ):
+        """
+        Verify that listing appointments for non-existent business returns 404.
+        
+        Expected behavior:
+        - Returns 404 Not Found status
+        """
+        response = client.get("/businesses/99999/appointments")
+        
+        assert response.status_code == 404
+
+    def test_list_appointments_include_cancelled_parameter(
+        self, client: TestClient, sample_business, sample_availability_rules
+    ):
+        """
+        Verify that include_cancelled parameter works.
+        
+        Expected behavior:
+        - Cancelled appointments are included when include_cancelled=True
+        - Cancelled appointments are excluded by default
+        """
+        next_monday = get_next_weekday(0)
+        start_time = datetime.combine(next_monday, time(10, 0), tzinfo=EST)
+        
+        # Create and cancel an appointment
+        create_response = client.post(
+            f"/businesses/{sample_business.id}/appointments",
+            json={
+                "customer_email": "cancel-test@example.com",
+                "service_type": "test",
+                "start_time": start_time.isoformat(),
+            },
+        )
+        assert create_response.status_code == 201
+        appointment_id = create_response.json()["appointment"]["id"]
+        
+        # Cancel the appointment
+        client.post(f"/appointments/{appointment_id}/cancel")
+        
+        # List without include_cancelled (no date filter)
+        response_without = client.get(
+            f"/businesses/{sample_business.id}/appointments",
+        )
+        assert response_without.status_code == 200
+        ids_without = [a["id"] for a in response_without.json()]
+        assert appointment_id not in ids_without
+        
+        # List with include_cancelled=True (no date filter)
+        response_with = client.get(
+            f"/businesses/{sample_business.id}/appointments",
+            params={"include_cancelled": True},
+        )
+        assert response_with.status_code == 200
+        ids_with = [a["id"] for a in response_with.json()]
+        assert appointment_id in ids_with
+
+    def test_list_appointments_by_invalid_date_format(
+        self, client: TestClient, sample_business
+    ):
+        """
+        Verify that invalid date format in query returns validation error.
+        
+        Expected behavior:
+        - Returns 422 Unprocessable Entity for invalid date
+        """
+        response = client.get(
+            f"/businesses/{sample_business.id}/appointments",
+            params={"date": "invalid-date"},
+        )
+        
+        assert response.status_code == 422
+
+
+class TestUpdateAppointmentEdgeCases:
+    """Additional tests for update_appointment edge cases."""
+
+    def test_update_appointment_multiple_fields(
+        self, client: TestClient, sample_appointment
+    ):
+        """
+        Verify that multiple fields can be updated at once.
+        
+        Expected behavior:
+        - All provided fields are updated
+        """
+        response = client.patch(
+            f"/appointments/{sample_appointment.id}",
+            json={
+                "title": "Updated Title",
+                "notes": "Updated Notes",
+                
+            },
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Updated Title"
+        assert data["notes"] == "Updated Notes"
+
+    def test_update_appointment_empty_body(
+        self, client: TestClient, sample_appointment
+    ):
+        """
+        Verify that empty update body doesn't change anything.
+        
+        Expected behavior:
+        - Returns 200 OK
+        - Appointment remains unchanged
+        """
+        original_title = sample_appointment.title
+        
+        response = client.patch(
+            f"/appointments/{sample_appointment.id}",
+            json={},
+        )
+        
+        assert response.status_code == 200
+        assert response.json()["title"] == original_title
