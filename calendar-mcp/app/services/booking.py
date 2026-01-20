@@ -7,8 +7,9 @@ import pytz
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Appointment, AppointmentStatus, Business, Customer, SyncStatus
+from app.models import Appointment, AppointmentStatus, Business, CalendarConnection, Customer, SyncStatus
 from app.services.availability import AvailabilityService
+from app.services.google_calendar import GoogleCalendarService
 
 
 class BookingService:
@@ -17,6 +18,19 @@ class BookingService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.availability_service = AvailabilityService(db)
+        self.google_calendar_service = GoogleCalendarService(db)
+
+    async def _has_google_calendar(self, business_id: int) -> bool:
+        """Check if a business has Google Calendar connected."""
+        result = await self.db.execute(
+            select(CalendarConnection).where(
+                and_(
+                    CalendarConnection.business_id == business_id,
+                    CalendarConnection.provider == "google",
+                )
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
     async def get_or_create_customer(
         self,
@@ -153,6 +167,10 @@ class BookingService:
         # Load customer relationship
         await self.db.refresh(appointment, ["customer"])
 
+        # Auto-sync to Google Calendar if connected
+        if await self._has_google_calendar(business_id):
+            await self.google_calendar_service.push_appointment(appointment)
+
         return {
             "success": True,
             "message": "Appointment booked successfully",
@@ -193,6 +211,10 @@ class BookingService:
         
         await self.db.flush()
         await self.db.refresh(appointment, ["customer"])
+
+        # Delete from Google Calendar if connected
+        if await self._has_google_calendar(appointment.business_id):
+            await self.google_calendar_service.delete_appointment_event(appointment)
 
         return {
             "success": True,
@@ -281,6 +303,10 @@ class BookingService:
         
         await self.db.flush()
         await self.db.refresh(appointment, ["customer"])
+
+        # Update on Google Calendar if connected
+        if await self._has_google_calendar(appointment.business_id):
+            await self.google_calendar_service.push_appointment(appointment)
 
         return {
             "success": True,

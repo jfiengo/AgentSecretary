@@ -1,6 +1,7 @@
 """Google OAuth flow routes."""
 
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -8,6 +9,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.api.dependencies import get_db
 from app.config import get_settings
@@ -193,7 +196,11 @@ async def google_connection_status(
         }
     
     # Check if token is expired
-    is_expired = connection.token_expires_at < datetime.utcnow()
+    token_expires_at = connection.token_expires_at
+    if token_expires_at.tzinfo is None:
+        # Handle naive datetime (e.g., from SQLite in tests)
+        token_expires_at = token_expires_at.replace(tzinfo=timezone.utc)
+    is_expired = token_expires_at < datetime.now(timezone.utc)
     
     return {
         "connected": True,
@@ -307,15 +314,20 @@ async def get_google_credentials(
     if credentials.expired and credentials.refresh_token:
         try:
             from google.auth.transport.requests import Request
+            logger.info(f"Refreshing expired Google token for business {business_id}")
             credentials.refresh(Request())
             
             # Update stored tokens
             connection.access_token = encrypt_token(credentials.token)
-            connection.token_expires_at = credentials.expiry or datetime.utcnow() + timedelta(hours=1)
+            connection.token_expires_at = credentials.expiry or datetime.now(timezone.utc) + timedelta(hours=1)
             await db.flush()
-        except Exception:
-            # Token refresh failed
+            logger.info(f"Successfully refreshed Google token for business {business_id}")
+        except Exception as e:
+            logger.error(f"Failed to refresh Google token for business {business_id}: {e}")
             return None
+    elif credentials.expired:
+        logger.warning(f"Google token expired for business {business_id} but no refresh token available")
+        return None
     
     return credentials
 

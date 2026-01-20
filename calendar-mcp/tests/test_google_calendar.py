@@ -107,8 +107,9 @@ class TestPushAppointment:
         """
         service = GoogleCalendarService(test_db)
         
-        # Reset sync status to pending
+        # Reset sync status to pending and clear external_uid to simulate new appointment
         sample_appointment.sync_status = SyncStatus.PENDING
+        sample_appointment.external_uid = None
         
         with patch.object(service, "get_calendar_service", new_callable=AsyncMock) as mock_get:
             mock_calendar_service = MagicMock()
@@ -176,6 +177,7 @@ class TestPushAppointment:
         """
         service = GoogleCalendarService(test_db)
         sample_appointment.sync_status = SyncStatus.PENDING
+        sample_appointment.external_uid = None  # Clear to test insert path
         
         with patch.object(service, "get_calendar_service", new_callable=AsyncMock) as mock_get:
             mock_calendar_service = MagicMock()

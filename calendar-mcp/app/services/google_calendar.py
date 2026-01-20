@@ -84,9 +84,8 @@ class GoogleCalendarService:
                 event["attendees"] = attendees
 
         try:
-            if appointment.external_uid and appointment.sync_status == SyncStatus.SYNCED:
-                # Update existing event
-                # Try to find event by UID first
+            if appointment.external_uid:
+                # Update existing event (or create if it doesn't exist)
                 try:
                     existing = service.events().get(
                         calendarId=calendar_id,
@@ -166,6 +165,10 @@ class GoogleCalendarService:
                 eventId=appointment.external_uid,
             ).execute()
 
+            # Mark as synced (deletion complete)
+            appointment.sync_status = SyncStatus.SYNCED
+            await self.db.flush()
+
             return {
                 "success": True,
                 "message": "Event deleted from Google Calendar",
@@ -173,11 +176,17 @@ class GoogleCalendarService:
 
         except HttpError as e:
             if e.resp.status == 404:
-                # Event already deleted
+                # Event already deleted, still mark as synced
+                appointment.sync_status = SyncStatus.SYNCED
+                await self.db.flush()
+                
                 return {
                     "success": True,
                     "message": "Event not found (already deleted)",
                 }
+            
+            appointment.sync_status = SyncStatus.FAILED
+            await self.db.flush()
             
             return {
                 "success": False,

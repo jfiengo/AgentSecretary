@@ -9,7 +9,7 @@ This module provides shared fixtures for all tests including:
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import AsyncGenerator, Generator
 
 import pytest
@@ -343,7 +343,7 @@ async def sample_calendar_connection(
         provider="google",
         access_token=encrypt_token("test-access-token"),
         refresh_token=encrypt_token("test-refresh-token"),
-        token_expires_at=datetime.utcnow() + timedelta(hours=1),
+        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         calendar_id="primary",
     )
     test_db.add(connection)
@@ -369,7 +369,7 @@ async def expired_calendar_connection(
         provider="google",
         access_token=encrypt_token("expired-access-token"),
         refresh_token=encrypt_token("expired-refresh-token"),
-        token_expires_at=datetime.utcnow() - timedelta(hours=1),
+        token_expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         calendar_id="primary",
     )
     test_db.add(connection)
